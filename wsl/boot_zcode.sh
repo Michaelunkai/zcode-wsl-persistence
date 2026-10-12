@@ -57,8 +57,17 @@ if [ ! -s "${SECRET_FILE}" ]; then
 fi
 export ZCODE_CREDENTIAL_SECRET="$(cat "${SECRET_FILE}")"
 
-# Non-destructive background import before launch (source is read-only input).
-"${MIG}/sync_zcode.sh" || true
+# Import before launch: full sync only on first bootstrap (thin state);
+# afterwards a --quick pass (auth/settings bundle, seconds) keeps boot instant.
+state_populated() {
+  [ -d "${HOME}/.zcode/v2" ] || return 1
+  [ "$(find "${HOME}/.zcode" -type f 2>/dev/null | head -3001 | wc -l)" -ge 3000 ]
+}
+if state_populated; then
+  "${MIG}/sync_zcode.sh" --quick || true
+else
+  "${MIG}/sync_zcode.sh" || true
+fi
 
 reap_orphans() {
   # NOTE: the Electron MAIN process renames itself (comm "ZCode", argv "ZCode"),

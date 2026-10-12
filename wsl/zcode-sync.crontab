@@ -1,5 +1,9 @@
 # ZCode WSL persistence — background automation for user `ubuntu` (Ubuntu 24.04 WSL2).
-# Installed via: crontab -u ubuntu zcode-sync.crontab
+# NOTE: install.sh registers these lines itself (paths embedded) — this file is
+# the human-readable reference copy.
 # SAFETY: sync_zcode.sh never deletes and never writes to /mnt/c.
+# (sync_zcode.sh single-instances itself via an internal flock — do not add an
+#  outer flock here, it would contend with the script's own lock.)
 @reboot /home/ubuntu/zcode-wsl-migration/boot_zcode.sh >> /home/ubuntu/zcode-wsl-migration/logs/boot.log 2>&1
+*/20 * * * * /home/ubuntu/zcode-wsl-migration/sync_zcode.sh --quick
 17 4 * * * /home/ubuntu/zcode-wsl-migration/sync_zcode.sh

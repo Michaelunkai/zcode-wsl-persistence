@@ -73,19 +73,20 @@ Linux store is never overwritten by sync after adoption.
 * The ZCode Desktop app installed on Windows (for the one-time state migration)
 * ~6 GB free in the WSL VM (the `.zcode` state + app)
 
-## Install
+## Install — one command, fully idempotent
 
 Everything in one shot, inside the Ubuntu distro:
 
 ```bash
-git clone https://github.com/Michaelunkai/zcode-wsl-persistence.git
-cd zcode-wsl-persistence/wsl
-sudo bash install.sh
+sudo bash /mnt/f/study/Platforms/linux/wsl2/Applications/Desktop/Persistence/Engine/zcode-wsl-persistence/wsl/install.sh
 ```
 
-`install.sh` runs the whole pipeline: apt dependencies (t64 names) → cron enablement →
-ZCode Linux `.deb` install + `ldd` verification → script deployment → non-destructive
-2 GB sync → credential adoption → tmux session + GUI launch → crontab registration.
+`install.sh` is **check-then-skip everywhere**: every step (apt packages, cron,
+user, the `.deb`, the 2.5 GB state sync, credential adoption, crontab) is
+installed only if missing — anything already present is skipped. If everything
+is already in place, the whole run takes **about a second**, never restarts a
+healthy app, and just makes sure ZCode is **open and connected**. Anything
+missing is installed — no exceptions — and then the app is opened.
 
 Then, on **Windows** (PowerShell 5.1), register the silent logon trigger:
 
@@ -95,6 +96,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File windows\Install-SilentBoot.p
 
 That's all. Log off/on (or run `wsl -t Ubuntu` and let the task fire) and the
 ZCode GUI appears, signed in, with your sessions.
+
+### Always current, always resuming
+
+* A cron **live mirror** (`*/20 * * * *`, seconds-fast) keeps the connection
+  state and settings in step with the Windows installation, so the session
+  list you see is current — sessions active on the Windows side show up in the
+  WSL app marked live, ready to use.
+* The app restores the **last workspace and its sessions automatically**
+  (`lastWorkspaceSession` is part of the synced settings bundle): if the
+  machine, WSL, or a session was closed mid-work, rerunning
+  `install.sh` — or simply the next boot — reopens exactly where you left
+  off. No per-session commands, nothing manual.
 
 ### Download
 
@@ -116,12 +129,12 @@ Grab a ready-to-run copy from the
 
 ## What "verified" means here (obsessive test battery)
 
-* `verify.sh` — 24 assertions: binary, zero unresolved libs, all six t64 packages,
-  cron active, `@reboot` + daily entries, **no `--delete` anywhere**, 2.5 GB migrated
-  state 100% owned by `ubuntu`, credential store adopted (8 entries), OAuth session
-  restored with **zero decrypt failures**, tmux session alive with the GUI under it,
-  X server reachable, live X11 connections into WSLg, zero open regular files under
-  `/mnt/*`, writable sentinel. **Result: 24 passed, 0 failed.**
+* `verify.sh` — 25 assertions: binary, zero unresolved libs, all six t64 packages,
+  cron active, `@reboot` + 20-min live mirror + daily entries, **no `--delete` anywhere**,
+  2.5 GB migrated state 100% owned by `ubuntu`, credential store adopted (8 entries),
+  OAuth session restored with **zero decrypt failures**, tmux session alive with the
+  GUI under it, X server reachable, live X11 connections into WSLg, zero open regular
+  files under `/mnt/*`, writable sentinel. **Result: 25 passed, 0 failed.**
 * `tests/isolation-proof.sh` — live handle audit (no data dependency on `/mnt`),
   **mount-namespace deletion simulation** (unmounts `/mnt/c` + `/mnt/f` in a private
   namespace: 18k files readable, binary + libs clean, credential store decryptable),

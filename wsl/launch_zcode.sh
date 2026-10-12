@@ -9,9 +9,18 @@
 # The Windows credentials file is DPAPI-encrypted (undecryptable on Linux) and is
 # handled by sync_zcode.sh's staging + migrate_credentials.py re-wrap — excluded
 # here so a Windows-side token refresh can never clobber the adopted Linux store.
-rsync -av --update \
-  --exclude 'v2/credentials.json' \
-  /mnt/c/Users/Admin/.zcode/ ~/.zcode/ 2>/dev/null || true
+# Gated: the full tree pass runs only while local state is thin (first bootstrap);
+# once populated this line is a no-op, so launch is instant. The daily cron keeps
+# the state fresh.
+state_populated() {
+  [ -d "${HOME}/.zcode/v2" ] || return 1
+  [ "$(find "${HOME}/.zcode" -type f 2>/dev/null | head -3001 | wc -l)" -ge 3000 ]
+}
+if ! state_populated; then
+  rsync -av --update \
+    --exclude 'v2/credentials.json' \
+    /mnt/c/Users/Admin/.zcode/ ~/.zcode/ 2>/dev/null || true
+fi
 export DISPLAY=:0
 export WAYLAND_DISPLAY=wayland-0
 

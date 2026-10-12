@@ -12,7 +12,14 @@
 #     Windows files as root-owned, so preserving owner/group would violate it).
 #   * flock: a single sync instance at a time; never overlaps a running GUI in
 #     a racy way (rsync writes to a temp name then renames per file).
+#
+# --quick  skips the bulk tree passes (they cost minutes over the 9p mount) and
+#          only refreshes the small auth/settings bundle. Boot hooks use this
+#          once state is populated; the daily cron runs the full form.
 set -u
+
+QUICK=0
+[ "${1:-}" = "--quick" ] && QUICK=1
 
 MIG="${HOME}/zcode-wsl-migration"
 LOGDIR="${MIG}/logs"
@@ -92,22 +99,26 @@ sync_auth_bundle() {
 }
 
 rc=0
-echo "$(date -Is) sync start (pid $$)" >> "${LOG}"
+echo "$(date -Is) sync start (pid $$, quick=${QUICK})" >> "${LOG}"
 
-if [ -d "${SRC_ZCODE}" ]; then
-  mkdir -p "${DST_ZCODE}"
-  rsync -av --update --ignore-existing --no-owner --no-group \
-    "${SRC_ZCODE}" "${DST_ZCODE}" >> "${LOG}" 2>&1 || rc=$?
+if [ "${QUICK}" -eq 1 ]; then
+  echo "$(date -Is) quick mode: bulk passes skipped" >> "${LOG}"
 else
-  # Windows source gone (wiped / uninstalled / WSL started offline): the Linux
-  # copy is fully self-contained and stays authoritative. Not an error.
-  echo "$(date -Is) NOTE: ${SRC_ZCODE} unavailable — Linux copy remains authoritative (isolation by design)" >> "${LOG}"
-fi
+  if [ -d "${SRC_ZCODE}" ]; then
+    mkdir -p "${DST_ZCODE}"
+    rsync -av --update --ignore-existing --no-owner --no-group \
+      "${SRC_ZCODE}" "${DST_ZCODE}" >> "${LOG}" 2>&1 || rc=$?
+  else
+    # Windows source gone (wiped / uninstalled / WSL started offline): the Linux
+    # copy is fully self-contained and stays authoritative. Not an error.
+    echo "$(date -Is) NOTE: ${SRC_ZCODE} unavailable — Linux copy remains authoritative (isolation by design)" >> "${LOG}"
+  fi
 
-if [ -d "${SRC_APPDATA}" ]; then
-  mkdir -p "${DST_APPDATA}"
-  rsync -av --update --ignore-existing --no-owner --no-group \
-    "${SRC_APPDATA}" "${DST_APPDATA}" >> "${LOG}" 2>&1 || rc=$?
+  if [ -d "${SRC_APPDATA}" ]; then
+    mkdir -p "${DST_APPDATA}"
+    rsync -av --update --ignore-existing --no-owner --no-group \
+      "${SRC_APPDATA}" "${DST_APPDATA}" >> "${LOG}" 2>&1 || rc=$?
+  fi
 fi
 
 # Auth bundle runs LAST so connection state lands even if the bulk pass hit

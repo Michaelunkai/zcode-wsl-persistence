@@ -27,6 +27,7 @@ done
 systemctl is-active cron >/dev/null 2>&1 && ok "cron service active" || bad "cron service not active"
 CRON="$(crontab -l 2>/dev/null || true)"
 echo "${CRON}" | grep -q '@reboot.*boot_zcode\.sh' && ok "cron @reboot boot hook present" || bad "cron @reboot boot hook missing"
+echo "${CRON}" | grep -qE '\*/20.*sync_zcode\.sh --quick' && ok "cron 20-min live mirror present" || bad "cron 20-min live mirror missing"
 echo "${CRON}" | grep -qE '^[0-9]+ [0-9]+ .*sync_zcode\.sh' && ok "cron daily sync present" || bad "cron daily sync missing"
 echo "${CRON}" | grep -q -- '--delete' && bad "DANGER: --delete found in crontab" || ok "no --delete anywhere in crontab"
 
