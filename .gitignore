@@ -1,0 +1,7 @@
+# Runtime artifacts — never commit migrated user data or logs
+logs/
+*.log
+*.log.old
+*.lock
+wsl/*.deb
+docs/screenshots/*.png.tmp
