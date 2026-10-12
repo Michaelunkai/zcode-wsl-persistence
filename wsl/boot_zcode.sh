@@ -69,6 +69,29 @@ else
   "${MIG}/sync_zcode.sh" || true
 fi
 
+# Session-database integrity: a malformed database would surface as failed
+# session resumes ("database disk image is malformed"). Check before launch;
+# heal from the Windows source when needed (milliseconds when healthy).
+if [ -f "${MIG}/heal_databases.sh" ]; then
+  bash "${MIG}/heal_databases.sh" >> "${MIG}/logs/heal.log" 2>&1 || true
+fi
+
+# Workspace path translation + failed-restore recovery: Windows-side sessions
+# carry F:\ paths (translated to /mnt/...), and a store the app previously
+# truncated (failed restore) is re-adopted from staging so every boot connects.
+if [ -f "${MIG}/fix_windows_paths.py" ]; then
+  python3 "${MIG}/fix_windows_paths.py" >> "${MIG}/logs/heal.log" 2>&1 || true
+fi
+if [ -f "${MIG}/migrate_credentials.py" ] && [ -s "${HOME}/.zcode-wsl-auth-secret" ]; then
+  LIVE_N="$(python3 -c "import json,os;print(len(json.load(open(os.path.expanduser('~/.zcode/v2/credentials.json')))))" 2>/dev/null || echo 0)"
+  STAGE_N="$(python3 -c "import json,os;print(len(json.load(open(os.path.expanduser('~/.zcode/v2/credentials.windows.json')))))" 2>/dev/null || echo 0)"
+  if [ "${LIVE_N}" -lt 8 ] && [ "${STAGE_N}" -gt "${LIVE_N}" ]; then
+    echo "$(date -Is) live store truncated (${LIVE_N}) — re-adopting from staging (${STAGE_N})" >> "${LOG}"
+    export ZCODE_CREDENTIAL_SECRET="$(cat "${SECRET_FILE}")"
+    python3 "${MIG}/migrate_credentials.py" >> "${MIG}/logs/heal.log" 2>&1 || true
+  fi
+fi
+
 reap_orphans() {
   # NOTE: the Electron MAIN process renames itself (comm "ZCode", argv "ZCode"),
   # so it is invisible to /opt/ZCode path patterns — match it by exact comm too.

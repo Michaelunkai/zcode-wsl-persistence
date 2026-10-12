@@ -100,6 +100,14 @@ echo "isolation-proof $(date -Is)" > "${SENTINEL}" 2>/dev/null \
   && [ "$(cat "${SENTINEL}" 2>/dev/null | wc -l)" -ge 1 ] \
   && ok "local state writable + readable (sentinel)" || bad "cannot write sentinel into ~/.zcode"
 
+# 8. session database integrity — every database must be valid (no exceptions)
+BADDB=0; TOTALDB=0
+while IFS= read -r db; do
+  TOTALDB=$((TOTALDB+1))
+  [ "$(sqlite3 "$db" 'PRAGMA quick_check;' 2>/dev/null | head -1)" = "ok" ] || { BADDB=$((BADDB+1)); echo "FAIL: malformed database: $db"; }
+done < <(find "${HOME}/.zcode" -maxdepth 3 -name '*.sqlite' -type f 2>/dev/null)
+[ "${TOTALDB}" -gt 0 ] && [ "${BADDB}" -eq 0 ] && ok "all ${TOTALDB} session databases pass integrity check" || bad "${BADDB}/${TOTALDB} session databases malformed"
+
 echo "----------------------------------------"
 echo "RESULT: ${PASS} passed, ${FAIL} failed"
 [ "${FAIL}" -eq 0 ] && exit 0 || exit 1

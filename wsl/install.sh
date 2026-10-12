@@ -62,7 +62,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # ----------------------------------------------------------------- phase 1: packages
 MISSING_PKGS=()
-for p in rsync tmux curl wget cron ca-certificates gnupg \
+for p in rsync tmux curl wget cron ca-certificates gnupg sqlite3 \
          libgtk-3-0t64 libnotify4 libnss3 libxss1 libasound2t64 libgbm1 \
          x11-utils wmctrl libsecret-1-0 libxkbcommon0 libdrm2 \
          fonts-liberation util-linux procps psmisc lsof; do
@@ -120,7 +120,7 @@ if [ "$(cd "${SRC_DIR}" && pwd)" = "${MIG}" ]; then
 else
   do_it "deploying runtime scripts to ${MIG}"
   mkdir -p "${MIG}/logs"
-  for f in launch_zcode.sh sync_zcode.sh boot_zcode.sh migrate_credentials.py; do
+  for f in launch_zcode.sh sync_zcode.sh boot_zcode.sh migrate_credentials.py heal_databases.sh fix_windows_paths.py; do
     tr -d '\r' < "${SRC_DIR}/${f}" > "${MIG}/${f}.tmp" && mv -f "${MIG}/${f}.tmp" "${MIG}/${f}"
     chmod 755 "${MIG}/${f}"
   done
@@ -173,6 +173,33 @@ else
 17 4 * * * ${MIG}/sync_zcode.sh"
   { echo "${EXISTING}"; echo "${NEW}"; } | sed '/^$/d' | crontab -u "${WSL_USER}" -
 fi
+
+# ----------------------------------------------------------------- phase 3c: session continuity
+# (a) Session database integrity — a malformed database would surface as failed
+#     session resumes ("database disk image is malformed"). Check and heal
+#     before launch (milliseconds when healthy).
+do_it "session database integrity check (+ auto-heal if needed)"
+HEAL_HOME="${HOME_U}" bash "${MIG}/heal_databases.sh" || true
+# (b) Workspace path translation — sessions created on the Windows side carry
+#     F:\...\C:\ paths; the Linux app refuses to resume those ("must be
+#     absolute"). Rewrite them to /mnt/<drive>/ equivalents so mid-work
+#     sessions continue exactly where they left off.
+do_it "workspace path translation (Windows -> WSL mounts)"
+runuser -u "${WSL_USER}" -- python3 "${MIG}/fix_windows_paths.py" || true
+# (c) Re-adopt the full credential store if the app ever dropped entries
+#     (failed-restore rewrites the store down to non-oauth entries; the staged
+#     copy always holds the full set).
+LIVE_N="$(runuser -u "${WSL_USER}" -- python3 -c "import json,os;print(len(json.load(open(os.path.expanduser('~/.zcode/v2/credentials.json')))))" 2>/dev/null || echo 0)"
+STAGE_N="$(runuser -u "${WSL_USER}" -- python3 -c "import json,os;print(len(json.load(open(os.path.expanduser('~/.zcode/v2/credentials.windows.json')))))" 2>/dev/null || echo 0)"
+if [ "${LIVE_N}" -ge 8 ]; then
+  skip_it "credential store complete (${LIVE_N} entries)"
+elif [ "${STAGE_N}" -gt "${LIVE_N}" ]; then
+  do_it "re-adopting credential store (live=${LIVE_N} < staged=${STAGE_N} — failed-restore recovery)"
+  runuser -u "${WSL_USER}" -- bash -c 'export ZCODE_CREDENTIAL_SECRET=$(cat ~/.zcode-wsl-auth-secret); python3 "'"${MIG}"'/migrate_credentials.py"'
+else
+  skip_it "credential store (${LIVE_N} entries; no richer staged copy)"
+fi
+chown -R "${WSL_USER}:${WSL_USER}" "${HOME_U}/.zcode" 2>/dev/null || true
 
 # ----------------------------------------------------------------- phase 4b: open the app (idempotent, instant if healthy)
 log "opening the app (a healthy running instance is never restarted)…"

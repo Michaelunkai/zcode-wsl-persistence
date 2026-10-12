@@ -98,6 +98,14 @@ sync_auth_bundle() {
   fi
 }
 
+crit_sync() {  # $1 = appdata-relative subtree; two passes defeat live-app locks
+  mkdir -p "${DST_APPDATA}${1}"
+  rsync -av --update --ignore-existing --no-owner --no-group \
+    "${SRC_APPDATA}${1}" "${DST_APPDATA}${1}" >> "${LOG}" 2>&1 || true
+  rsync -av --update --ignore-existing --no-owner --no-group \
+    "${SRC_APPDATA}${1}" "${DST_APPDATA}${1}" >> "${LOG}" 2>&1 || true
+}
+
 rc=0
 echo "$(date -Is) sync start (pid $$, quick=${QUICK})" >> "${LOG}"
 
@@ -118,7 +126,19 @@ else
     mkdir -p "${DST_APPDATA}"
     rsync -av --update --ignore-existing --no-owner --no-group \
       "${SRC_APPDATA}" "${DST_APPDATA}" >> "${LOG}" 2>&1 || rc=$?
+    # The live Windows app holds Chromium files locked; one pass can skip the
+    # localStorage .ldb files the renderer needs to know it has a connected
+    # account. Retry the critical subtrees (small, fast) until they land.
+    crit_sync "session/Local Storage/"
+    crit_sync "session/Partitions/"
   fi
+fi
+
+# QUICK mode: keep the connected-account-critical profile subtrees fresh too
+# (tiny; the caches that make the appdata pass slow are deliberately skipped).
+if [ "${QUICK}" -eq 1 ] && [ -d "${SRC_APPDATA}" ]; then
+  crit_sync "session/Local Storage/"
+  crit_sync "session/Partitions/"
 fi
 
 # Auth bundle runs LAST so connection state lands even if the bulk pass hit
